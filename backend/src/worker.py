@@ -2,6 +2,7 @@ import logging
 import time
 from pathlib import Path
 
+from .corrections import process_recompute
 from .density import map_floor
 from .storage import audit, cache, transaction
 
@@ -27,9 +28,14 @@ def analyze(cur, hour_id):
 
 def process_next():
     with transaction() as cur:
-        cur.execute("SELECT id FROM floor_hours WHERE status='queued' ORDER BY id LIMIT 1 FOR UPDATE SKIP LOCKED")
+        cur.execute("SELECT id,status FROM floor_hours WHERE status IN ('queued','recomputing') "
+                    'ORDER BY id LIMIT 1 FOR UPDATE SKIP LOCKED')
         hour = cur.fetchone()
         if not hour:
+            return
+        if hour['status'] == 'recomputing':
+            # 失败时内部已回滚保存点并恢复 ready，旧版封存结果保留，等待再次提交更正触发重试。
+            process_recompute(cur, hour['id'])
             return
         cur.execute('SAVEPOINT analysis_start')
         try:

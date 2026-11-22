@@ -1,7 +1,7 @@
 export const roleLabel = {observer: '巡场采样', operator: '楼层运营', steward: '现场疏导'};
 export const pointLabel = {insufficient: '样本不足', below_threshold: '低于阈值', noise: '噪声点', core: '核心点', border: '边界点'};
 export const taskLabel = {assigned: '待认领', active: '疏导中', closed: '已结案'};
-export const hourLabel = {collecting: '采集中', queued: '计算中', ready: '已封存', failed: '计算失败'};
+export const hourLabel = {collecting: '采集中', queued: '计算中', ready: '已封存', failed: '计算失败', recomputing: '重算中'};
 
 export function text(value) {
   return String(value ?? '').replace(/[&<>"']/g, char => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'}[char]));

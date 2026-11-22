@@ -61,7 +61,7 @@ def read_map(cur, hour_id):
     hour = cur.fetchone()
     if not hour:
         raise HTTPException(404, '楼层小时不存在')
-    if hour['status'] != 'ready':
+    if hour['status'] not in ('ready', 'recomputing'):
         return {'hour': hour, 'points': [], 'hotspots': []}
     cur.execute('SELECT p.*,s.code,s.name,s.x,s.y,h.zone_number FROM analysis_points p '
                 'JOIN stores s ON s.id=p.store_id LEFT JOIN hotspots h ON h.id=p.hotspot_id '
@@ -75,11 +75,18 @@ def read_map(cur, hour_id):
 
 
 def confirm_zone(cur, hotspot_id, user):
+    cur.execute('SELECT hour_id FROM hotspots WHERE id=%s', (hotspot_id,))
+    hotspot_ref = cur.fetchone()
+    if not hotspot_ref:
+        raise HTTPException(404, '热区不存在')
+    # 与观测更正共用楼层小时锁，重算期间不确认派单，派单一律以最终生效的分群为准。
+    cur.execute('SELECT status FROM floor_hours WHERE id=%s FOR UPDATE', (hotspot_ref['hour_id'],))
+    hour = cur.fetchone()
+    if hour['status'] != 'ready':
+        raise HTTPException(409, '热区重算进行中，请按更正后的最终分群确认派单')
     cur.execute('SELECT h.status,s.staging_point FROM hotspots h JOIN stores s ON s.id=h.anchor_store_id '
                 'WHERE h.id=%s FOR UPDATE', (hotspot_id,))
     hotspot = cur.fetchone()
-    if not hotspot:
-        raise HTTPException(404, '热区不存在')
     if hotspot['status'] == 'confirmed':
         cur.execute('SELECT id FROM dispatch_tasks WHERE hotspot_id=%s', (hotspot_id,))
         return {'task_id': cur.fetchone()['id'], 'duplicate': True}

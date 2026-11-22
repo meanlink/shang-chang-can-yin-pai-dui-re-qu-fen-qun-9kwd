@@ -52,11 +52,12 @@ def snapshot(cur, hour_id):
 
 def read_handoff(cur, query):
     hour = find_hour(cur, query)
-    if not hour or hour['status'] != 'ready':
-        return {'state': 'waiting_analysis', 'record': None, 'report': None}
-    record = report_record(cur, hour['id'])
+    record = report_record(cur, hour['id']) if hour else None
+    # 已发布（含已签收）的简报是冻结快照，重算期间和之后都继续显示发布时的数据。
     if record:
         return {'state': 'received' if record['received_by'] else 'published', 'record': record, 'report': record['report']}
+    if not hour or hour['status'] != 'ready':
+        return {'state': 'waiting_analysis', 'record': None, 'report': None}
     report = snapshot(cur, hour['id'])
     return {'state': 'waiting_dispatch' if report['pending'] else 'publishable', 'record': None, 'report': report}
 
@@ -64,7 +65,7 @@ def read_handoff(cur, query):
 def publish(cur, request, actor):
     hour = find_hour(cur, request, lock=True)
     if not hour or hour['status'] != 'ready':
-        raise HTTPException(409, '请先完成该楼层小时的热区分析')
+        raise HTTPException(409, '请先完成该楼层小时的热区分析（重算进行中暂不能发布简报）')
     if report_record(cur, hour['id']):
         raise HTTPException(409, '该楼层小时已发布交接简报')
     report = snapshot(cur, hour['id'])

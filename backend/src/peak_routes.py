@@ -15,7 +15,7 @@ router = APIRouter()
 def get_surges(query: Hour, _user=Depends(authenticate)):
     with transaction() as cur:
         hour = find_hour(cur, query)
-        if not hour or hour['status'] != 'ready':
+        if not hour or hour['status'] not in ('ready', 'recomputing'):
             return {'responses': [], 'tasks': []}
         return {'responses': surge.for_hour(cur, hour['id']), 'tasks': surge.eligible_tasks(cur, hour['id'])}
 
@@ -48,7 +48,7 @@ def cancel_surge(key: int, data: Note, user=Depends(operator)):
 def get_recoveries(query: Hour, _user=Depends(authenticate)):
     with transaction() as cur:
         hour = find_hour(cur, query)
-        if not hour or hour['status'] != 'ready':
+        if not hour or hour['status'] not in ('ready', 'recomputing'):
             return {'cases': [], 'sources': []}
         return {'cases': recovery.for_hour(cur, hour['id']), 'sources': recovery.sources(cur, hour['id'])}
 

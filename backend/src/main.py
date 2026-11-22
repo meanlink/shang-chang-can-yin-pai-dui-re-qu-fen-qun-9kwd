@@ -13,6 +13,8 @@ from pymysql import IntegrityError, OperationalError
 from scripts.seed_demo import seed
 
 from .contracts import Clearance, FloorHourInput, ObservationInput, Role, SignIn, StoreInput
+from .correction_contracts import CorrectionInput
+from .corrections import list_corrections, submit_correction
 from .extension_routes import router as extension_router
 from .peak_routes import router as peak_router
 from .security import authenticate, login, permit
@@ -137,7 +139,15 @@ def run_analysis(data: FloorHourInput, user=Depends(permit(Role.OPERATOR))):
 @app.get('/analyses/{hour_id}')
 def get_analysis(hour_id: int, _user=Depends(authenticate)):
     with transaction() as cur:
-        return read_map(cur, hour_id)
+        result = read_map(cur, hour_id)
+        result['corrections'] = list_corrections(cur, hour_id)
+        return result
+
+
+@app.post('/observations/corrections', status_code=202)
+def correct_observation(data: CorrectionInput, user=Depends(permit(Role.OPERATOR))):
+    with transaction() as cur:
+        return submit_correction(cur, data, user)
 
 
 @app.post('/hotspots/{hotspot_id}/confirm')

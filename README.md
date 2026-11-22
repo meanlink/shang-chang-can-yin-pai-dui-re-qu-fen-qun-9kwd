@@ -51,6 +51,16 @@ docker compose up -d --build --wait
 
 控流状态 `planned / active / resolved / cancelled` 定义于 `003_surge_response.sql`，规则见 `surge.py`、`surge_policy.py`，显示见 `surges.js` 与 `handoffs.js`。恢复状态 `open / monitoring / closed` 定义于 `004_tenant_recovery.sql`，规则见 `recovery.py`、`recovery_checks.py`，显示见 `recoveries.js`、`recovery-evidence.js` 与 `handoffs.js`。`peak_routes.py` 和 `peak_contracts.py` 提供 API 与输入校验。控流方式 `meter_entry / stagger_pickup` 在迁移、`SurgePlan` 和 `surges.js` 中定义。
 
+## 封存观测更正
+
+1. 楼层运营在「热区工作台」底部选择已封存小时中的观测窗口，录入正确排队人数和原因后提交。系统先在同一事务内按更正后的数据预演 DBSCAN：若会改动任何**已派单（已确认）热区**的成员或锚点，整笔更正直接退回（409），不写更正记录、不改观测，原疏导单照常处理。
+2. 预检查通过后，观测值更新、楼层小时进入 `recomputing` 并交由 worker 重算。重算期间工作台仍显示上次封存结果（含地图、成员和锚点），热区确认与简报发布一并暂停，派单最终以生效后的分群为准。
+3. 重算只重写分析点和未派单热区；锚点与成员完全一致的已派单热区复用原行，疏导单、等候线预留、控流方案和恢复工单的引用不变。
+4. 重算失败时保存点回滚，楼层小时恢复 `ready`，旧版结果继续展示，更正记录保持待处理。运营重新提交即重试，**复用同一行更正记录，不新增记录**；用相同正确值也可再次入队。
+5. 已经发布的「高峰交接简报」是发布时的 JSON 快照，更正与重算不会回改，继续显示发布时的数据。
+
+楼层小时状态 `collecting / queued / ready / failed / recomputing` 见 `001_queue.sql`、`005_observation_corrections.sql`、`shift.py`、`worker.py` 与 `ui.js`。更正规则见 `corrections.py`、`correction_contracts.py`，入口为 `POST /observations/corrections`，更正记录随 `GET /analyses/{hour_id}` 一并返回。
+
 ## DBSCAN 口径
 
 固定观察单位是一个楼层小时，最多 4 个按 15 分钟对齐的窗口。门店至少要有 3 个观测，且排队人数中位数达到 8 人，才参与 DBSCAN。以同层排队入口的米制坐标计算欧氏距离，`eps=18m`、`minPts=3`，邻居计入自身。核心点可以扩展邻域，边界点加入群但不扩展，符合拥堵和样本门槛却未分入群的点为噪声。样本不足者只在排除清单中出现，达样本数但低于拥堵门槛者显示为低于阈值。门店编号排序确定边界点和编号归属，输出可复现。每个群以排队中位数最高的核心门店为锚点，同值按门店编号排序。分析失败时回滚输出，楼层运营可对同一份封存数据重试。
@@ -64,7 +74,7 @@ docker compose up -d --build --wait
 | 数据 | MySQL 8.0 存业务实体和审计；Redis 存短时 worker 心跳 |
 | 分析 | 独立 Python worker 从 MySQL 队列取任务，事务内写热区、成员、锚点和运行状态 |
 
-`backend/migrations/001_queue.sql` 定义数据库约束，`backend/src/shift.py` 实现采样和任务流转，`backend/src/density.py` 实现聚类，`backend/scripts/seed_demo.py` 管演示数据。`frontend/src/pages/` 包含九个业务视图，`ui.js` 定义共享组件和显示枚举，`state.js` 管 JWT 会话和请求。角色、点类型、任务状态见 `backend/src/contracts.py`、MySQL `ENUM` 和 `frontend/src/ui.js`。楼层小时状态见 `001_queue.sql`、`shift.py`、`worker.py` 和 `ui.js`。
+`backend/migrations/001_queue.sql` 定义数据库约束，`backend/src/shift.py` 实现采样和任务流转，`backend/src/density.py` 实现聚类，`backend/src/corrections.py` 实现封存观测更正的保护预检查与重算状态机，`backend/scripts/seed_demo.py` 管演示数据。`frontend/src/pages/` 包含九个业务视图，`ui.js` 定义共享组件和显示枚举，`state.js` 管 JWT 会话和请求。角色、点类型、任务状态见 `backend/src/contracts.py`、MySQL `ENUM` 和 `frontend/src/ui.js`。楼层小时状态见 `001_queue.sql`、`shift.py`、`worker.py` 和 `ui.js`。
 
 `.env.example` 记录三个端口、数据库口令、JWT 密钥和 seed 开关。容器本地开发可修改源文件后执行 `docker compose up -d --build <service>`，也可在已启动的后端运行 `docker compose exec -T backend python -m scripts.seed_demo`。初始架构由 MySQL 在新卷启动时建立。扩展表由后端在启动时幂等创建。MySQL、Redis 和 worker 共享运行目录分别有命名卷。若本机有其他工程使用相同端口，可在 `.env` 中覆盖。
 
